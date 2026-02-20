@@ -35,7 +35,7 @@ leaflet() |>
 1+1
 ```
 
-[Resume](resume.pdf)
+
 --------------
 
 
