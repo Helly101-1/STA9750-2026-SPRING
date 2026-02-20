@@ -1,6 +1,13 @@
+---
+
 title: "Helly Shah - STA 9750"
+
 ---
 
 Hi, I’m Helly Harshad Shah, a graduate student at Baruch College.
 
 This website contains my submissions and projects for STA 9750.
+
+```{r}
+#| include: false
+1+1
