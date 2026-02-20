@@ -35,7 +35,7 @@ leaflet() |>
 1+1
 ```
 
-[Resume](HELLY_HARSHAD_SHAH_Resume.pdf)
+[Resume](resume.pdf)
 --------------
 
 

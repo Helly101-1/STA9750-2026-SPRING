@@ -2,6 +2,10 @@ project:
   type: website
   output-dir: docs
 
+resources:
+  - resume/**
+  - docs/*.pdf
+
 website:
   title: "STA 9750 Submission Material"
   description:
@@ -10,7 +14,7 @@ website:
   navbar:
     background: primary
     search: false
-    
+
 format:
   html:
     theme: sandstone
