@@ -36,6 +36,6 @@ leaflet() |>
 ```
 
 --------------
-📄 **Resume:** [Download my resume](resume.pdf)
+📄 **Resume:** [Download my resume](HELLY_HARSHAD_SHAH_Resume.pdf)
 
 Last Updated: `r format(Sys.time(), "%A %m %d, %Y at %H:%M%p")`
