@@ -1,0 +1,514 @@
+---
+title: "Mini Project 01"
+format: html
+---
+
+## Data Acquisition
+
+```{r}
+library(tidyverse)
+library(glue)
+library(gt)
+library(skimr)
+library(scales)
+
+#' Acquire IPEDS Data for MP#01
+#' 
+#' This function will acquire and standardize all data for MP#01
+#' from IPEDS (https://nces.ed.gov/ipeds/datacenter/DataFiles.aspx)
+#' 
+#' We're starting in 2010 as the data seems to be reasonably complete 
+#' after that point. 
+acquire_ipeds_data <- function(start_year=2010, end_year=2024){
+    data_dir <- file.path("data", "mp01")
+    
+    if(!dir.exists(data_dir)){
+        dir.create(data_dir, showWarnings = FALSE, recursive = TRUE)
+    }
+    
+    YEARS <- seq(start_year, end_year)
+    
+    EFA_ALL <- map(YEARS, function(yy){
+        if(yy <= 2022){
+            ef_url <- glue("https://nces.ed.gov/ipeds/datacenter/data/EF{yy}A.zip")
+        } else {
+            ef_url <- glue("https://nces.ed.gov/ipeds/data-generator?year={yy}&tableName=EF{yy}A&HasRV=0&type=csv")
+        }
+        
+        ef_file <- file.path(data_dir, glue("ef{yy}a.csv.zip"))
+        
+        if(!file.exists(ef_file)){
+            message(glue("Downloading Enrollment Data for {yy}"))
+            download.file(ef_url, destfile = ef_file, quiet = TRUE, mode = "wb")
+        }
+        
+        read_csv(ef_file, show_col_types = FALSE) |>
+            mutate(
+                year = yy,
+                enrollment_m_aian = EFAIANM,
+                enrollment_f_aian = EFAIANW,
+                enrollment_m_asia = EFASIAM,
+                enrollment_f_asia = EFASIAW,
+                enrollment_m_bkaa = EFBKAAM,
+                enrollment_f_bkaa = EFBKAAW,
+                enrollment_m_hisp = EFHISPM,
+                enrollment_f_hisp = EFHISPW,
+                enrollment_m_nhpi = EFNHPIM,
+                enrollment_f_nhpi = EFNHPIW,
+                enrollment_m_whit = EFWHITM,
+                enrollment_f_whit = EFWHITW,
+                enrollment_m_2mor = EF2MORM,
+                enrollment_f_2mor = EF2MORW,
+                enrollment_m_unkn = EFUNKNM,
+                enrollment_f_unkn = EFUNKNW,
+                enrollment_m_nral = EFNRALM,
+                enrollment_f_nral = EFNRALW
+            ) |>
+            filter((EFALEVEL %in% c(2, 12)) | (LINE %in% c(1, 15))) |>
+            mutate(
+                level = case_when(
+                    EFALEVEL == 2 ~ "all undergrad",
+                    EFALEVEL == 12 ~ "all graduate",
+                    LINE %in% c(1, 15) ~ "first year undergrad"
+                )
+            ) |>
+            select(
+                institution_id = UNITID,
+                year,
+                level,
+                starts_with("enrollment_")
+            ) |>
+            group_by(institution_id, year, level) |>
+            summarize(across(starts_with("enrollment_"), sum), .groups = "drop")
+    }) |> bind_rows()
+    
+    DESC_ALL <- map(YEARS, function(yy){
+        if(yy <= 2022){
+            hd_url <- glue("https://nces.ed.gov/ipeds/datacenter/data/HD{yy}.zip")
+        } else {
+            hd_url <- glue("https://nces.ed.gov/ipeds/data-generator?year={yy}&tableName=HD{yy}&HasRV=0&type=csv")
+        }
+        
+        hd_file <- file.path(data_dir, glue("hd{yy}.csv.zip"))
+        
+        if(!file.exists(hd_file)){
+            message(glue("Downloading Institutional Descriptions for {yy}"))
+            download.file(hd_url, destfile = hd_file, quiet = TRUE, mode = "wb")
+        }
+        
+        suppressWarnings(
+            read_csv(
+                hd_file,
+                show_col_types = FALSE,
+                locale = locale(encoding = if_else(yy == 2024, "utf-8", "windows-1252"))
+            ) |>
+            mutate(year = yy) |>
+            select(
+                institution_id = UNITID,
+                institution_name = INSTNM,
+                state = STABBR,
+                year
+            )
+        )
+    }) |> bind_rows()
+    
+    inner_join(
+        EFA_ALL,
+        DESC_ALL,
+        join_by(institution_id == institution_id, year == year)
+    )
+}
+
+IPEDS <- acquire_ipeds_data()
+
+dim(IPEDS)
+```
+
+## Data Cleaning and Preparation
+
+To support the analysis, I created two Boolean variables. The variable `is_cuny` identifies institutions in the CUNY system by checking whether the institution name contains the string "CUNY". The variable `is_calpublic` identifies public universities in California that belong to either the University of California system or the California State system.
+
+## Task 2: Identify CUNY Schools
+
+```{r}
+IPEDS <- IPEDS |>
+  mutate(
+    is_cuny = str_detect(institution_name, "CUNY")
+  )
+```
+
+### List of CUNY Schools
+
+```{r}
+IPEDS |>
+  filter(is_cuny) |>
+  distinct(institution_name) |>
+  arrange(institution_name)
+```
+
+## Task 3: Identify UC and Cal State Schools
+
+```{r}
+IPEDS <- IPEDS |>
+  mutate(
+    is_calpublic = state == "CA" & (
+      str_detect(institution_name, "^University of California") |
+      str_detect(institution_name, "^California State") |
+      str_detect(institution_name, "^California Polytechnic State University-San Luis Obispo$") |
+      str_detect(institution_name, "^San Diego State University$") |
+      str_detect(institution_name, "^San Jose State University$") |
+      str_detect(institution_name, "^Sonoma State University$")
+    )
+  )
+```
+
+### List of California Public Universities
+
+```{r}
+IPEDS |>
+  filter(is_calpublic) |>
+  distinct(institution_name) |>
+  arrange(institution_name)
+```
+
+## Task 4: Initial EDA Pass
+
+```{r}
+glimpse(IPEDS)
+```
+
+```{r}
+skim(IPEDS)
+```
+
+The IPEDS dataset contains 219,316 rows and 25 columns after adding the new variables used in this section. The data include institution identifiers, institution names, states, reporting year, and enrollment counts by race/ethnicity and gender. The `glimpse()` output shows that the variables have appropriate data types, while the `skim()` summary confirms that the dataset covers multiple institutions and years with no major structural issues. These summaries indicate that the dataset is well structured and suitable for further analysis.
+
+## Task 5: Exploratory Questions - Inline Values
+
+The dataset contains `r comma(n_distinct(IPEDS$institution_id))` distinct institutions.
+
+In 2024, Baruch College enrolled `r comma(IPEDS |>
+  filter(str_detect(institution_name, "Baruch"),
+         year == 2024,
+         level == "all graduate") |>
+  select(starts_with("enrollment_")) |>
+  summarize(total = sum(across(everything()))) |>
+  pull(total))` graduate students.
+  
+In 2024, Baruch College had `r comma(IPEDS |>
+  filter(str_detect(institution_name, "Baruch"),
+         year == 2024,
+         level %in% c("all undergrad","all graduate")) |>
+  select(starts_with("enrollment_")) |>
+  summarize(total = sum(across(everything()))) |>
+  pull(total))` total students enrolled.
+  
+In 2019, `r IPEDS |>
+  filter(year == 2019,
+         level %in% c("all undergrad", "all graduate")) |>
+  mutate(total_female = enrollment_f_aian + enrollment_f_asia + enrollment_f_bkaa +
+           enrollment_f_hisp + enrollment_f_nhpi + enrollment_f_whit +
+           enrollment_f_2mor + enrollment_f_unkn + enrollment_f_nral) |>
+  arrange(desc(total_female)) |>
+  slice(1) |>
+  pull(institution_name)` had the highest female enrollment with `r comma(IPEDS |>
+  filter(year == 2019,
+         level %in% c("all undergrad", "all graduate")) |>
+  mutate(total_female = enrollment_f_aian + enrollment_f_asia + enrollment_f_bkaa +
+           enrollment_f_hisp + enrollment_f_nhpi + enrollment_f_whit +
+           enrollment_f_2mor + enrollment_f_unkn + enrollment_f_nral) |>
+  arrange(desc(total_female)) |>
+  slice(1) |>
+  pull(total_female))` students.
+  
+In 2024, `r IPEDS |>
+  filter(year == 2024,
+         level == "first year undergrad") |>
+  mutate(total_students = enrollment_m_aian + enrollment_f_aian +
+                         enrollment_m_asia + enrollment_f_asia +
+                         enrollment_m_bkaa + enrollment_f_bkaa +
+                         enrollment_m_hisp + enrollment_f_hisp +
+                         enrollment_m_nhpi + enrollment_f_nhpi +
+                         enrollment_m_whit + enrollment_f_whit +
+                         enrollment_m_2mor + enrollment_f_2mor +
+                         enrollment_m_unkn + enrollment_f_unkn +
+                         enrollment_m_nral + enrollment_f_nral,
+         nhpi_students = enrollment_m_nhpi + enrollment_f_nhpi,
+         nhpi_share = nhpi_students / total_students) |>
+  filter(total_students > 1000) |>
+  arrange(desc(nhpi_share)) |>
+  slice(1) |>
+  pull(institution_name)` admitted the highest proportion of Native Hawaiian or Pacific Islander first-year undergraduates at `r percent(IPEDS |>
+  filter(year == 2024,
+         level == "first year undergrad") |>
+  mutate(total_students = enrollment_m_aian + enrollment_f_aian +
+                         enrollment_m_asia + enrollment_f_asia +
+                         enrollment_m_bkaa + enrollment_f_bkaa +
+                         enrollment_m_hisp + enrollment_f_hisp +
+                         enrollment_m_nhpi + enrollment_f_nhpi +
+                         enrollment_m_whit + enrollment_f_whit +
+                         enrollment_m_2mor + enrollment_f_2mor +
+                         enrollment_m_unkn + enrollment_f_unkn +
+                         enrollment_m_nral + enrollment_f_nral,
+         nhpi_students = enrollment_m_nhpi + enrollment_f_nhpi,
+         nhpi_share = nhpi_students / total_students) |>
+  filter(total_students > 1000) |>
+  arrange(desc(nhpi_share)) |>
+  slice(1) |>
+  pull(nhpi_share))`.
+  
+## Task 6: Exploratory Questions - Table Answers
+
+```{r}
+IPEDS <- IPEDS |>
+  mutate(
+    total_students = rowSums(across(starts_with("enrollment_")), na.rm = TRUE),
+    total_female = rowSums(across(starts_with("enrollment_f_")), na.rm = TRUE),
+    total_male = rowSums(across(starts_with("enrollment_m_")), na.rm = TRUE),
+    total_white = enrollment_m_whit + enrollment_f_whit,
+    total_nhpi = enrollment_m_nhpi + enrollment_f_nhpi
+  )
+```
+
+### 1. Top 5 states by graduate enrollment
+
+```{r}
+IPEDS |>
+  filter(level == "all graduate") |>
+  group_by(state) |>
+  summarize(graduate_students = sum(total_students), .groups = "drop") |>
+  arrange(desc(graduate_students)) |>
+  slice_head(n = 5) |>
+  gt() |>
+  cols_label(
+    state = "State",
+    graduate_students = "Graduate Students"
+  ) |>
+  fmt_number(columns = graduate_students, decimals = 0) |>
+  tab_header(
+    title = "Top 5 States by Graduate Enrollment",
+    subtitle = "Total graduate students across all institutions"
+  )
+```
+
+### 2. First-year undergraduate students at CUNY colleges in 2024
+
+```{r}
+IPEDS |>
+  filter(year == 2024, level == "first year undergrad", is_cuny) |>
+  select(institution_name, total_students) |>
+  arrange(desc(total_students)) |>
+  mutate(percent_total = total_students / sum(total_students)) |>
+  gt() |>
+  cols_label(
+    institution_name = "CUNY College",
+    total_students = "First-Year Undergraduates",
+    percent_total = "Percent of Total"
+  ) |>
+  fmt_number(columns = total_students, decimals = 0) |>
+  fmt_percent(columns = percent_total, decimals = 1) |>
+  tab_header(
+    title = "First-Year Undergraduate Enrollment at CUNY Colleges in 2024",
+    subtitle = "Absolute counts and share of total CUNY first-year enrollment"
+  )
+```
+
+### 3. Baruch undergraduate enrollment over time
+
+```{r}
+IPEDS |>
+  filter(str_detect(institution_name, "Baruch"),
+         level == "all undergrad") |>
+  select(year, total_students) |>
+  arrange(year) |>
+  mutate(pct_change = (total_students / lag(total_students)) - 1) |>
+  gt() |>
+  cols_label(
+    year = "Year",
+    total_students = "Undergraduate Enrollment",
+    pct_change = "Year-over-Year Change"
+  ) |>
+  fmt_number(columns = total_students, decimals = 0) |>
+  fmt_percent(columns = pct_change, decimals = 1) |>
+  tab_header(
+    title = "Baruch Undergraduate Enrollment Over Time",
+    subtitle = "Enrollment levels and year-over-year percent change"
+  )
+```
+
+### 4. Institutions with the largest decrease in white student share, 2010 to 2020
+
+```{r}
+IPEDS |>
+  filter(level == "all undergrad", year %in% c(2010, 2020)) |>
+  mutate(white_share = total_white / total_students) |>
+  filter(total_students >= 1000) |>
+  select(institution_id, institution_name, year, total_students, white_share) |>
+  tidyr::pivot_wider(
+    names_from = year,
+    values_from = c(total_students, white_share),
+    names_sep = "_"
+  ) |>
+  filter(!is.na(white_share_2010), !is.na(white_share_2020)) |>
+  mutate(change_white_share = white_share_2020 - white_share_2010) |>
+  arrange(change_white_share) |>
+  slice_head(n = 5) |>
+  select(institution_name, white_share_2010, white_share_2020, change_white_share) |>
+  gt() |>
+  cols_label(
+    institution_name = "Institution",
+    white_share_2010 = "White Share (2010)",
+    white_share_2020 = "White Share (2020)",
+    change_white_share = "Change"
+  ) |>
+  fmt_percent(columns = c(white_share_2010, white_share_2020, change_white_share), decimals = 1) |>
+  tab_header(
+    title = "Largest Decreases in White Undergraduate Share, 2010 to 2020",
+    subtitle = "Restricted to institutions with at least 1,000 undergraduates"
+  )
+```
+
+### 5. States with the largest increase in female undergraduate share, 2010 to 2024
+
+```{r}
+IPEDS |>
+  filter(level == "all undergrad", year %in% c(2010, 2024)) |>
+  group_by(state, year) |>
+  summarize(
+    female_students = sum(total_female),
+    total_students = sum(total_students),
+    female_share = female_students / total_students,
+    .groups = "drop"
+  ) |>
+  select(state, year, female_share) |>
+  tidyr::pivot_wider(
+    names_from = year,
+    values_from = female_share,
+    names_prefix = "female_share_"
+  ) |>
+  filter(!is.na(female_share_2010), !is.na(female_share_2024)) |>
+  mutate(change_female_share = female_share_2024 - female_share_2010) |>
+  arrange(desc(change_female_share)) |>
+  slice_head(n = 3) |>
+  gt() |>
+  cols_label(
+    state = "State",
+    female_share_2010 = "Female Share (2010)",
+    female_share_2024 = "Female Share (2024)",
+    change_female_share = "Change"
+  ) |>
+  fmt_percent(columns = c(female_share_2010, female_share_2024, change_female_share), decimals = 1) |>
+  tab_header(
+    title = "States with the Largest Increase in Female Undergraduate Share",
+    subtitle = "Comparison between 2010 and 2024"
+  )
+```
+
+
+## Task 7: College Newspaper Op-Ed
+
+### Diversity at Baruch College: A Reflection of Our City
+
+As president of Baruch College, I believe that diversity is one of the greatest strengths of our institution. Baruch has long served students from many different backgrounds, reflecting the multicultural nature of New York City itself. A diverse campus allows students to learn from peers with different perspectives and experiences, which strengthens the overall educational environment.
+
+For this analysis, diversity is defined as the fraction of undergraduate students who are not White and not Asian American. This measure helps highlight the representation of historically underrepresented groups within the student body.
+
+Baruch College has a large and diverse student population. In 2024, the college enrolled approximately `r comma(IPEDS |>
+  filter(str_detect(institution_name,"Baruch"),
+         year == 2024,
+         level %in% c("all undergrad","all graduate")) |>
+  select(starts_with("enrollment_")) |>
+  summarize(total = sum(across(everything()))) |>
+  pull(total))` total students. The undergraduate population makes up the majority of this enrollment and represents a wide variety of racial and ethnic backgrounds.
+
+Looking specifically at the incoming class, Baruch enrolled about `r comma(IPEDS |>
+  filter(str_detect(institution_name,"Baruch"),
+         year == 2024,
+         level == "first year undergrad") |>
+  select(starts_with("enrollment_")) |>
+  summarize(total = sum(across(everything()))) |>
+  pull(total))` first-year undergraduate students in 2024. The size of the entering class has remained relatively stable over recent years, indicating consistent demand for a Baruch education.
+
+Over time, the demographic composition of the student body has continued to evolve. As New York City becomes increasingly diverse, the student population at Baruch reflects those broader demographic changes. This trend highlights the important role that public universities play in providing access to higher education for students from many different communities.
+
+Comparing Baruch with other public institutions can also provide useful context. For example, large public universities in California have experienced similar demographic changes in recent years. Because California universities operate under different policy environments, they serve as a useful benchmark when examining whether demographic changes are driven by institutional policy or by broader social and demographic trends.
+
+Overall, diversity strengthens the learning environment at Baruch College. Students benefit from engaging with classmates who bring different cultural backgrounds and life experiences to the classroom. By continuing to support access to education and maintaining an inclusive campus environment, Baruch can remain a place where students from many communities can learn, grow, and succeed.
+
+## Entropy Analysis
+
+Entropy is a statistical measure used to evaluate diversity in a population. In this context, entropy measures how evenly different racial and ethnic groups are represented among students. A higher entropy value indicates a more diverse student population because enrollment is distributed more evenly across groups.
+
+To measure diversity using entropy, we first calculate the proportion of students in each racial and ethnic group and then apply the entropy formula.
+
+```{r}
+IPEDS_entropy <- IPEDS |>
+  filter(level == "all undergrad") |>
+  mutate(
+    aian = enrollment_m_aian + enrollment_f_aian,
+    asia = enrollment_m_asia + enrollment_f_asia,
+    bkaa = enrollment_m_bkaa + enrollment_f_bkaa,
+    hisp = enrollment_m_hisp + enrollment_f_hisp,
+    nhpi = enrollment_m_nhpi + enrollment_f_nhpi,
+    whit = enrollment_m_whit + enrollment_f_whit,
+    other = enrollment_m_2mor + enrollment_f_2mor +
+            enrollment_m_unkn + enrollment_f_unkn +
+            enrollment_m_nral + enrollment_f_nral
+  ) |>
+  rowwise() |>
+  mutate(
+    total = sum(c(aian, asia, bkaa, hisp, nhpi, whit, other)),
+    entropy = -sum((c(aian, asia, bkaa, hisp, nhpi, whit, other) / total) *
+                   log(c(aian, asia, bkaa, hisp, nhpi, whit, other) / total + 1e-10))
+  ) |>
+  ungroup()
+```
+
+### Diversity Entropy at Baruch College
+
+```{r}
+IPEDS_entropy |>
+  filter(str_detect(institution_name, "Baruch"),
+         level == "all undergrad") |>
+  select(year, entropy) |>
+  arrange(year) |>
+  gt() |>
+  cols_label(
+    year = "Year",
+    entropy = "Diversity Entropy"
+  ) |>
+  fmt_number(decimals = 3) |>
+  tab_header(
+    title = "Entropy Measure of Diversity at Baruch College",
+    subtitle = "Higher entropy values indicate greater diversity"
+  )
+```
+
+
+##  Data Visualization
+
+To better understand how Baruch College has changed over time, the following visualization shows the total undergraduate enrollment at Baruch from 2010 to 2024.
+
+```{r}
+IPEDS |>
+  filter(str_detect(institution_name, "Baruch"),
+         level == "all undergrad") |>
+  select(year, total_students) |>
+  arrange(year) |>
+  ggplot(aes(x = year, y = total_students)) +
+  geom_line(color = "steelblue", linewidth = 1) +
+  geom_point(color = "steelblue") +
+  labs(
+    title = "Undergraduate Enrollment at Baruch College (2010–2024)",
+    x = "Year",
+    y = "Number of Students"
+  ) +
+  theme_minimal()
+```
+
+::: {.callout-note title="AI Usage Statement" collapse="true"}
+
+No Generative AI tools were used to complete this mini-project.
+
+:::
+  
