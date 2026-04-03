@@ -908,6 +908,9 @@ the labor force, parental attention per child declines with family size,
 and college-enrolled respondents dedicate significantly more time to
 education than non-enrolled individuals. These findings provide a strong
 foundation for the time-tracking app.
+
 ::: {.callout-note title="AI Usage Statement" collapse="true"}
+
 No Generative AI tools were used to complete this mini-project.
+
 :::
