@@ -1,0 +1,159 @@
+
+peer_feedback_assignment_1:
+  issue_number: 24
+  issue_owner: izabellediaz20
+  issue_ok: yes
+  issue_status: OK
+  overall_comments:
+    positive: Systematic way of using coding to get the best output.
+    negative: I think in task 5
+    advice: understanding the requirement more in detail?
+  scores:
+    Written Communication:
+      score: 8.5
+      comment: Task 5 seems to be with some little missing values
+    Project Skeleton:
+      score: 10.0
+      comment: This section looks very neat and proper.
+    Tables & Document Presentation:
+      score: 10.0
+      comment: the documentation looks clean and the visualizations are proper.
+    Data Visualization:
+      score: 10.0
+      comment: DEFAULT SCORE
+    Exploratory Data Analysis:
+      score: 10.0
+      comment: DEFAULT SCORE
+    Code Quality:
+      score: 10.0
+      comment: Because the candidate has meet the requirement and also submitted in
+        neat and clean manner
+    Data Preparation:
+      score: 10.0
+      comment: DEFAULT SCORE
+    Analysis and Findings:
+      score: 10.0
+      comment: proper code and analysis is been used
+    Extra Credit:
+      score: 4.0
+      comment: For the timely submission and meeting all the requirements
+  mp_number: 1.0
+peer_feedback_assignment_2:
+  issue_number: 29
+  issue_owner: jackeee101
+  issue_ok: yes
+  issue_status: OK
+  overall_comments:
+    positive: proper complete submission
+    negative: Maybe the candidate try different ways of visualizings
+    advice: by exploring different ways
+  scores:
+    Written Communication:
+      score: 10.0
+      comment: the communication stated properly easy to understand
+    Project Skeleton:
+      score: 10.0
+      comment: Gives a perfect way to project
+    Tables & Document Presentation:
+      score: 10.0
+      comment: the table and document presentation are nicely presented
+    Data Visualization:
+      score: 10.0
+      comment: DEFAULT SCORE
+    Exploratory Data Analysis:
+      score: 10.0
+      comment: DEFAULT SCORE
+    Code Quality:
+      score: 10.0
+      comment: codes are proper
+    Data Preparation:
+      score: 10.0
+      comment: DEFAULT SCORE
+    Analysis and Findings:
+      score: 10.0
+      comment: the finding are properly described
+    Extra Credit:
+      score: 0.0
+      comment: Becuase he Didn't showed any excessive visualization which can attract
+        or feel rewarding.
+  mp_number: 1.0
+peer_feedback_assignment_3:
+  issue_number: 35
+  issue_owner: kiran1051998
+  issue_ok: no
+  issue_status: Could not locate your AI Usage Statement - No '.callout-note' block.
+  overall_comments:
+    positive: neat work
+    negative: visualize
+    advice: finding different aspects
+  scores:
+    Written Communication:
+      score: 10.0
+      comment: Report is very well-written and flows naturally. Motivation for key
+        steps
+    Project Skeleton:
+      score: 10.0
+      comment: Code completes all instructor-provided tasks correctly. Responses to
+        open-ended
+    Tables & Document Presentation:
+      score: 10.0
+      comment: because the formatting and visualize are good
+    Data Visualization:
+      score: 10.0
+      comment: DEFAULT SCORE
+    Exploratory Data Analysis:
+      score: 10.0
+      comment: DEFAULT SCORE
+    Code Quality:
+      score: 10.0
+      comment: clear code
+    Data Preparation:
+      score: 10.0
+      comment: DEFAULT SCORE
+    Analysis and Findings:
+      score: 10.0
+      comment: analysis and findings are properly completed
+    Extra Credit:
+      score: 1.0
+      comment: for neat and clean submission
+  mp_number: 1.0
+peer_feedback_assignment_4:
+  issue_number: 42
+  issue_owner: er0driguez
+  issue_ok: yes
+  issue_status: OK
+  overall_comments:
+    positive: the way the candidate has demonstrated everything clearly
+    negative: everything stated is good no extra improvement is required
+    advice: Good stand in the submission
+  scores:
+    Written Communication:
+      score: 9.0
+      comment: key Finding are appropriate
+    Project Skeleton:
+      score: 10.0
+      comment: creative and insightful
+    Tables & Document Presentation:
+      score: 10.0
+      comment: Formatting and visualization are proper
+    Data Visualization:
+      score: 10.0
+      comment: DEFAULT SCORE
+    Exploratory Data Analysis:
+      score: 10.0
+      comment: DEFAULT SCORE
+    Code Quality:
+      score: 10.0
+      comment: because it passes the analysis of styler and lintr
+    Data Preparation:
+      score: 10.0
+      comment: DEFAULT SCORE
+    Analysis and Findings:
+      score: 10.0
+      comment: provides proper insights
+    Extra Credit:
+      score: 2.0
+      comment: because the candidate has demonstrated everything properly
+  mp_number: 1.0
+evaluator: helly101-1
+

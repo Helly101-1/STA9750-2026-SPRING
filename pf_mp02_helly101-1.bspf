@@ -1,0 +1,134 @@
+ypeer_feedback_assignment_1:
+  issue_number: 62
+  issue_owner: dhwanikan
+  issue_ok: no
+  issue_status: |-
+    Could not identify qmd source document
+     - Expected source file not found at: https://raw.githubusercontent.com/dhwanikan/STA9750-2026-SPRING/refs/heads/main/mp02.qmd
+  overall_comments:
+    positive: ''
+    negative: to recheck the after submission.
+    advice: ''
+  scores:
+    Written Communication:
+      score: 8.5
+      comment: Clear and structured writing; slight improvements in conciseness and
+        polish needed for a higher score.
+    Project Skeleton:
+      score: 7.0
+      comment: Project structure is partially in place (rendered output exists), but
+        the required source file (mp02.qmd) is missing from the repository root, causing
+        the submission to fail automated checks. This indicates an incomplete project
+        skeleton setup.
+    Tables & Document Presentation:
+      score: 7.0
+      comment: Tables and overall presentation appear reasonably structured and readable.
+        Some improvements in formatting, clarity, and visual polish could enhance
+        the overall presentation.
+    Data Visualization:
+      score: 7.0
+      comment: Visualizations appear generally clear and relevant. Additional improvements
+        in clarity, labeling, and presentation could strengthen their effectiveness.
+    Exploratory Data Analysis:
+      score: 8.0
+      comment: Shows a reasonable understanding of the datasets used, but due to incomplete
+        submission (missing mp02.qmd), the full depth and quality of the EDA could
+        not be fully verified
+    Code Quality:
+      score: 6.0
+      comment: Code quality could not be fully assessed due to the missing mp02.qmd
+        file. Based on available artifacts, structure appears reasonable
+    Data Preparation:
+      score: 7.0
+      comment: Data preparation appears reasonably handled based on available output,
+        but due to the missing mp02.qmd, the full process and reproducibility could
+        not be verified.
+    Analysis and Findings:
+      score: 7.0
+      comment: was not able too see the file
+    Extra Credit:
+      score: 1.0
+      comment: ''
+  mp_number: 2.0
+peer_feedback_assignment_2:
+  issue_number: 64
+  issue_owner: janielave
+  issue_ok: yes
+  issue_status: OK
+  overall_comments:
+    positive: ''
+    negative: ''
+    advice: |2-
+
+      no
+  scores:
+    Written Communication:
+      score: 10.0
+      comment: It is well-written
+    Project Skeleton:
+      score: 8.0
+      comment: creative
+    Tables & Document Presentation:
+      score: 8.5
+      comment: formatting
+    Data Visualization:
+      score: 9.0
+      comment: plots
+    Exploratory Data Analysis:
+      score: 10.0
+      comment: DEFAULT SCORE
+    Code Quality:
+      score: 9.0
+      comment: clear throughout
+    Data Preparation:
+      score: 10.0
+      comment: DEFAULT SCORE
+    Analysis and Findings:
+      score: 9.0
+      comment: quality
+    Extra Credit:
+      score: 0.0
+      comment: ''
+  mp_number: 2.0
+peer_feedback_assignment_3:
+  issue_number: 66
+  issue_owner: asarker00
+  issue_ok: no
+  issue_status: |-
+    Could not access the following files:
+     - https://asarker00.github.io/STA9750-2026-SPRING/@import
+  overall_comments:
+    positive: none
+    negative: none
+    advice: none
+  scores:
+    Written Communication:
+      score: 9.0
+      comment: clearly
+    Project Skeleton:
+      score: 8.0
+      comment: no minor mistake
+    Tables & Document Presentation:
+      score: 8.0
+      comment: well formatted
+    Data Visualization:
+      score: 8.0
+      comment: presentation
+    Exploratory Data Analysis:
+      score: 10.0
+      comment: DEFAULT SCORE
+    Code Quality:
+      score: 8.0
+      comment: clarity
+    Data Preparation:
+      score: 10.0
+      comment: DEFAULT SCORE
+    Analysis and Findings:
+      score: 10.0
+      comment: insight
+    Extra Credit:
+      score: 1.0
+      comment: creative work
+  mp_number: 2.0
+evaluator: helly101-1
+

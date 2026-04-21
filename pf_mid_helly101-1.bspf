@@ -1,0 +1,51 @@
+dhwanikan:
+  evaluator: helly101-1
+  teammate: dhwanikan
+  n_questions: 5
+  questions:
+    OQ: 4
+    SQ: 4
+    DS: 4
+    RR: 4
+    PR: 5
+  overall_comments:
+    positive: she was able to give idea
+    negative: none
+    advice: none
+    instructor: 'no'
+  cycle: mid
+felisita101:
+  evaluator: helly101-1
+  teammate: felisita101
+  n_questions: 5
+  questions:
+    OQ: 4
+    SQ: 5
+    DS: 5
+    RR: 4
+    PR: 4
+  overall_comments:
+    positive: she know more about the data
+    negative: none
+    advice: have a straight answer to it.
+    instructor: no i felt i got more confused when she was sharing her idea to all
+      of us.
+  cycle: mid
+khushwant-khatri590:
+  evaluator: helly101-1
+  teammate: khushwant-khatri590
+  n_questions: 5
+  questions:
+    OQ: 4
+    SQ: 5
+    DS: 5
+    RR: 5
+    PR: 5
+  overall_comments:
+    positive: multi-tasking
+    negative: no i had work with khushwant before too.
+    advice: helpful
+    instructor: 'no'
+  cycle: mid
+evaluator: helly101-1
+
