@@ -1,0 +1,1634 @@
+
+---
+title: "Mini-Project 04 - Going for the Gold"
+author: "helly101-1"
+editor:
+    mode: source
+format:
+    html:
+        code-fold: true
+---
+
+## Introduction
+
+The Olympic Games remain one of the world’s most significant international sporting events, attracting global audiences, corporate sponsorships, and national attention. With Los Angeles set to host the 2028 Summer Olympics, expectations surrounding Team USA’s performance are especially high. Historically, host nations often experience improved medal performance due to factors such as home-field advantage, increased investment in athlete development, and automatic qualification opportunities in selected events.
+
+In this mini-project, I analyze historical Olympic medal results using data scraped directly from Olympedia. The analysis focuses on three major factors that may influence Team USA’s 2028 Olympic performance:
+
+1. Team USA’s historical baseline medal performance
+2. The host-country advantage effect
+3. The impact of newly introduced Olympic sports
+
+To complete this analysis, I use modern data analytics techniques including web scraping, data cleaning, exploratory data analysis, statistical inference, and Monte Carlo simulation modeling. The final goal is to forecast Team USA’s expected medal performance in the 2028 Los Angeles Olympics and summarize the findings in a concise fundraising-style report suitable for stakeholders and sponsors.
+
+
+## Data Acquisition and Preparation
+
+This section builds the core Olympic Games data set directly from Olympedia. I first scrape the main Olympic editions page, then extract each Games’ season, year, Olympiad number, Olympedia edition ID, host city, and host country code. The host country code is extracted from the flag image URL, which is necessary because the assignment requires information beyond the plain text returned by `html_table()`.
+
+### Required Packages
+
+```{r}
+#| label: setup
+#| message: false
+#| warning: false
+
+library(tidyverse)
+library(rvest)
+library(stringr)
+library(fs)
+library(gt)
+library(janitor)
+library(scales)
+library(infer)
+library(sf)
+library(rnaturalearth)
+
+theme_set(theme_minimal())
+```
+
+### Cached Olympedia Reader
+
+To avoid repeatedly downloading the same pages from Olympedia, I use the cached reader recommended in the assignment instructions. The first time a page is requested, it is saved locally; later requests read the saved copy.
+
+```{r}
+#| label: olympedia-helper
+#| message: false
+#| warning: false
+
+slow_download <- purrr::slowly(
+  download.file,
+  purrr::rate_delay(pause = 5)
+)
+
+read_olympedia <- function(url, ...) {
+  
+  if (stringr::str_starts(url, "/")) {
+    url <- stringr::str_remove(url, "/")
+  }
+  
+  cache_dir <- fs::path("data", "mp04", "olympedia_cache")
+  
+  if (!fs::dir_exists(cache_dir)) {
+    fs::dir_create(cache_dir, recurse = TRUE)
+  }
+  
+  cache_path <- fs::path(
+    cache_dir,
+    url |>
+      as.character() |>
+      stringr::str_replace_all("/", "_")
+  )
+  
+  if (!fs::file_exists(cache_path)) {
+    src_url <- paste0("https://www.olympedia.org/", url)
+    
+    slow_download(
+      src_url,
+      cache_path,
+      mode = "wb"
+    )
+  }
+  
+  rvest::read_html(cache_path)
+}
+```
+
+### Roman Numeral Helper
+
+Olympedia reports Olympiad numbers using Roman numerals. I convert those values into integers so the resulting data set is easier to analyze and join.
+
+```{r}
+#| label: roman-helper
+
+roman_to_integer <- function(x) {
+  suppressWarnings(as.integer(as.roman(x)))
+}
+```
+
+### Read the Olympic Editions Page
+
+```{r}
+#| label: read-editions
+
+editions_page <- read_olympedia("editions")
+```
+
+### Parse Olympic Games Metadata
+
+```{r}
+#| label: parse-games-v3
+
+parse_game_row <- function(this_row) {
+  
+  cells <- this_row |> html_elements("td")
+  
+  edition_url <- this_row |>
+    html_element("a[href^='/editions/']") |>
+    html_attr("href")
+  
+  host_code <- this_row |>
+    html_element("img") |>
+    html_attr("src") |>
+    str_extract("[A-Z]{3}(?=\\.png)")
+  
+  tibble(
+    olympiad_roman = cells |> html_element(xpath = ".") |> html_text2() |> pluck(1, .default = NA_character_),
+    year = cells |> html_text2() |> pluck(2, .default = NA_character_) |> parse_number() |> as.integer(),
+    city = cells |> html_text2() |> pluck(3, .default = NA_character_),
+    edition_url = edition_url,
+    host_code = host_code
+  )
+}
+
+all_game_rows <- editions_page |>
+  html_elements("table tr")
+
+games <- map_dfr(all_game_rows, parse_game_row) |>
+  filter(!is.na(edition_url)) |>
+  mutate(
+    edition_id = str_extract(edition_url, "\\d+") |> as.integer(),
+    olympiad_id = roman_to_integer(olympiad_roman),
+    season = case_when(
+      olympiad_id <= 25 & year <= 2024 ~ "Summer",
+      TRUE ~ "Winter"
+    )
+  ) |>
+  select(
+    season,
+    year,
+    olympiad_id,
+    edition_id,
+    city,
+    host_code,
+    edition_url
+  ) |>
+  filter(!is.na(year), year >= 1896, year <= 2024) |>
+  distinct(edition_id, .keep_all = TRUE)
+
+games
+```
+
+### Validate the Olympic Games Data
+
+```{r}
+#| label: games-validation
+
+games |>
+  count(season, name = "number_of_games") |>
+  gt() |>
+  tab_header(
+    title = "Olympic Games Scraped from Olympedia",
+    subtitle = "Modern Summer and Winter Olympic editions through 2024"
+  ) |>
+  cols_label(
+    season = "Olympic Season",
+    number_of_games = "Number of Games"
+  )
+```
+
+```{r}
+#| label: games-preview
+
+games |>
+  arrange(season, year) |>
+  slice_head(n = 10) |>
+  gt() |>
+  tab_header(
+    title = "Sample of Parsed Olympic Games Metadata",
+    subtitle = "Each row represents one Olympic edition"
+  ) |>
+  cols_label(
+    season = "Season",
+    year = "Year",
+    olympiad_id = "Olympiad ID",
+    edition_id = "Olympedia Edition ID",
+    city = "Host City",
+    host_code = "Host Code",
+    edition_url = "Edition URL"
+  )
+```
+
+The resulting `games` data set gives the foundation for the rest of the analysis. Each row represents one Olympic edition and includes the season, year, Olympiad ID, Olympedia edition ID, host city, host country code, and edition URL.
+
+### Extract Olympic Sports and Discipline Links
+
+The next step is to extract the sports and discipline pages associated with each Olympic Games. These links are required because Olympedia stores medal tables separately for each sport within each Olympic edition.
+
+```{r}
+#| label: scrape-sports
+#| message: false
+#| warning: false
+
+extract_sports <- function(edition_url) {
+  
+  edition_page <- read_olympedia(edition_url)
+  
+  links <- edition_page |>
+    html_elements("a")
+  
+  map_dfr(links, function(this_link) {
+    tibble(
+      discipline = this_link |> html_text2(),
+      sport_url = this_link |> html_attr("href")
+    )
+  }) |>
+    filter(
+      !is.na(sport_url),
+      str_detect(sport_url, "/sports/")
+    ) |>
+    mutate(
+      sport_url = str_remove(sport_url, "^/")
+    ) |>
+    distinct(sport_url, .keep_all = TRUE) |>
+    select(discipline, sport_url)
+}
+
+edition_sports <- games |>
+  mutate(
+    sports_data = map(
+      edition_url,
+      extract_sports
+    )
+  ) |>
+  unnest(sports_data)
+
+edition_sports
+```
+
+```{r}
+#| label: sports-preview
+
+edition_sports |>
+  select(
+    season,
+    year,
+    city,
+    discipline,
+    sport_url
+  ) |>
+  slice_head(n = 10) |>
+  gt() |>
+  tab_header(
+    title = "Sample of Olympic Discipline Links",
+    subtitle = "Each row links one Olympic edition to one sport page"
+  )
+```
+
+```{r}
+#| label: save-sports-data
+
+write_csv(
+  edition_sports,
+  "data/mp04/edition_sports.csv"
+)
+```
+
+### Scrape Olympic Medal Tables
+
+The final step of the Olympedia acquisition process is to scrape the medal tables associated with each Olympic sport and edition combination. These medal tables provide the country-level gold, silver, bronze, and total medal counts used throughout the remainder of the analysis.
+
+```{r}
+#| label: scrape-medal-tables
+#| message: false
+#| warning: false
+
+read_medal_table <- function(sport_url) {
+  
+  sport_page <- read_olympedia(sport_url)
+  
+  medal_tables <- sport_page |>
+    html_elements("table")
+  
+  possible_tables <- medal_tables |>
+    map(html_table)
+  
+  medal_table <- keep(
+    possible_tables,
+    ~ all(c("Gold", "Silver", "Bronze") %in% names(.x))
+  )
+  
+  if(length(medal_table) == 0) {
+    return(NULL)
+  }
+  
+  medal_table[[1]] |>
+    clean_names() |>
+    mutate(
+      sport_url = sport_url
+    )
+}
+
+medal_results <- edition_sports |>
+  # slice_head(n = 30) |>
+  mutate(
+    medal_data = map(
+      sport_url,
+      safely(read_medal_table)
+    )
+  )
+```
+
+Before cleaning the full medal data set, I first test the transformation workflow on a single medal table to verify that medal counts are aggregated correctly at the country level.
+
+### Test Cleaning One Medal Table
+
+```{r}
+#| label: clean-one-medal-table-test
+
+one_table <- medal_results$medal_data[[1]]$result
+
+one_clean <- one_table |>
+  select(
+    sport_url,
+    gold_country = gold_2,
+    silver_country = silver_2,
+    bronze_country = bronze_2
+  ) |>
+  pivot_longer(
+    cols = c(gold_country, silver_country, bronze_country),
+    names_to = "medal_type",
+    values_to = "competitor_code"
+  ) |>
+  filter(
+    !is.na(competitor_code),
+    str_detect(competitor_code, "^[A-Z]{3}$")
+  ) |>
+  mutate(
+    medal_type = str_remove(medal_type, "_country")
+  ) |>
+  count(
+    sport_url,
+    competitor_code,
+    medal_type,
+    name = "medal_count"
+  ) |>
+  pivot_wider(
+    names_from = medal_type,
+    values_from = medal_count,
+    values_fill = 0
+  )
+
+one_clean
+```
+
+```{r}
+#| label: clean-test-medal-results-v2
+
+
+clean_event_medal_table_v2 <- function(medal_item) {
+  
+  result_table <- medal_item$result
+  
+  if (is.null(result_table)) {
+    return(tibble())
+  }
+  
+  needed_cols <- c("sport_url", "gold_2", "silver_2", "bronze_2")
+  
+  if (!all(needed_cols %in% names(result_table))) {
+    return(tibble())
+  }
+  
+  cleaned_table <- result_table |>
+    select(
+      sport_url,
+      gold_country = gold_2,
+      silver_country = silver_2,
+      bronze_country = bronze_2
+    ) |>
+    pivot_longer(
+      cols = c(gold_country, silver_country, bronze_country),
+      names_to = "medal_type",
+      values_to = "competitor_code"
+    ) |>
+    filter(
+      !is.na(competitor_code),
+      str_detect(competitor_code, "^[A-Z]{3}$")
+    ) |>
+    mutate(
+      medal_type = str_remove(medal_type, "_country")
+    ) |>
+    count(
+      sport_url,
+      competitor_code,
+      medal_type,
+      name = "medal_count"
+    ) |>
+    pivot_wider(
+      names_from = medal_type,
+      values_from = medal_count,
+      values_fill = list(medal_count = 0)
+    )
+  
+  if (!"gold" %in% names(cleaned_table)) cleaned_table[["gold"]] <- 0L
+  if (!"silver" %in% names(cleaned_table)) cleaned_table[["silver"]] <- 0L
+  if (!"bronze" %in% names(cleaned_table)) cleaned_table[["bronze"]] <- 0L
+  
+  cleaned_table |>
+    mutate(
+      gold = as.integer(gold),
+      silver = as.integer(silver),
+      bronze = as.integer(bronze),
+      total = gold + silver + bronze
+    ) |>
+    select(
+      sport_url,
+      competitor_code,
+      gold,
+      silver,
+      bronze,
+      total
+    )
+}
+
+medal_results_clean <- medal_results |>
+  mutate(
+    clean_medals = map(
+      medal_data,
+      clean_event_medal_table_v2
+    )
+  ) |>
+  select(
+    season,
+    year,
+    city,
+    discipline,
+    clean_medals
+  ) |>
+  unnest(clean_medals)
+
+medal_results_clean
+```
+## Standardize and Clean Countries + Geospatial Visualization
+
+Olympedia uses three-letter country codes, but some of these codes do not perfectly match modern ISO country codes. In this section, I standardize country codes, join the Olympic medal data to geographic country data, and create a map of Olympic medal performance.
+
+### Load Clean Medal Data
+
+```{r}
+#| label: load-clean-medal-data
+#| message: false
+#| warning: false
+
+medal_results_clean <- read_csv(
+  "data/mp04/medal_results_clean.csv",
+  show_col_types = FALSE
+)
+
+medal_results_clean |>
+  slice_head(n = 10)
+```
+
+### Load Country Geometry Data
+
+```{r}
+#| label: load-country-map-data
+#| message: false
+#| warning: false
+
+world_countries <- rnaturalearth::ne_countries(returnclass = "sf") |>
+  select(
+    country_name = name,
+    iso_a3,
+    geometry
+  )
+
+world_countries |>
+  slice_head(n = 5)
+```
+
+### Identify Country Code Mismatches
+
+```{r}
+#| label: identify-country-code-mismatches
+
+missing_country_codes <- medal_results_clean |>
+  distinct(competitor_code) |>
+  anti_join(
+    world_countries,
+    by = c("competitor_code" = "iso_a3")
+  ) |>
+  arrange(competitor_code)
+
+missing_country_codes
+```
+
+### Apply Country Code Fixes
+
+```{r}
+#| label: standardize-country-codes
+
+country_code_fixes <- c(
+  "URS" = "RUS",
+  "GRE" = "GRC",
+  "GER" = "DEU",
+  "SUI" = "CHE",
+  "NED" = "NLD",
+  "DEN" = "DNK",
+  "POR" = "PRT",
+  "CRO" = "HRV",
+  "SLO" = "SVN",
+  "TCH" = "CZE",
+  "YUG" = "SRB",
+  "FRG" = "DEU",
+  "GDR" = "DEU",
+  "EUN" = "RUS"
+)
+
+medal_results_standardized <- medal_results_clean |>
+  mutate(
+    competitor_iso3 = recode(
+      competitor_code,
+      !!!country_code_fixes,
+      .default = competitor_code
+    )
+  )
+
+remaining_missing_codes <- medal_results_standardized |>
+  distinct(competitor_iso3) |>
+  anti_join(
+    world_countries,
+    by = c("competitor_iso3" = "iso_a3")
+  ) |>
+  arrange(competitor_iso3)
+
+remaining_missing_codes
+```
+
+### Join Olympic Medal Data to Countries
+
+```{r}
+#| label: join-medals-to-map-data
+
+country_medal_totals <- medal_results_standardized |>
+  group_by(competitor_iso3) |>
+  summarise(
+    gold = sum(gold, na.rm = TRUE),
+    silver = sum(silver, na.rm = TRUE),
+    bronze = sum(bronze, na.rm = TRUE),
+    total = sum(total, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+world_medals <- world_countries |>
+  left_join(
+    country_medal_totals,
+    by = c("iso_a3" = "competitor_iso3")
+  ) |>
+  mutate(
+    total = replace_na(total, 0),
+    gold = replace_na(gold, 0),
+    silver = replace_na(silver, 0),
+    bronze = replace_na(bronze, 0)
+  )
+```
+
+### Geospatial Visualization
+
+```{r}
+#| label: olympic-medal-map
+#| fig-width: 10
+#| fig-height: 6
+
+ggplot(world_medals) +
+  geom_sf(
+    aes(fill = total),
+    color = "white",
+    linewidth = 0.1
+  ) +
+  scale_fill_viridis_c(
+    option = "C",
+    trans = "sqrt",
+    labels = comma,
+    name = "Total medals"
+  ) +
+  labs(
+    title = "Global Distribution of Olympic Medal Success",
+    subtitle = "Total Olympic medals by country across modern Olympic Games",
+    caption = "Data source: Olympedia; country geometries from necountries"
+  ) +
+  theme(
+    legend.position = "bottom",
+    plot.title = element_text(face = "bold"),
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    panel.grid = element_blank()
+  )
+```
+
+The map shows that Olympic medal success is highly concentrated among a relatively small number of countries. This pattern reflects long-term differences in population size, economic resources, sports infrastructure, and historical investment in Olympic competition.
+
+
+## Exploratory Data Analysis
+This section explores the cleaned Olympic medal data to understand the three major effects used in the final Olympic forecast: Team USA’s historical baseline performance, the host-country advantage effect, and the influence of newly introduced Olympic sports.
+
+### Team USA Historical Medal Performance
+
+The United States has historically been one of the strongest Olympic nations across both Summer and Winter Games. To establish a baseline for later forecasting, I first examine Team USA’s historical medal performance over time.
+
+```{r}
+#| label: usa-medal-summary
+
+usa_medals <- medal_results_standardized |>
+  filter(competitor_iso3 == "USA") |>
+  group_by(year, season) |>
+  summarise(
+    gold = sum(gold, na.rm = TRUE),
+    silver = sum(silver, na.rm = TRUE),
+    bronze = sum(bronze, na.rm = TRUE),
+    total = sum(total, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+usa_medals
+```
+
+### Team USA Medal Totals Table
+
+```{r}
+#| label: usa-medal-table
+
+usa_medals |>
+  arrange(desc(total)) |>
+  slice_head(n = 10) |>
+  gt() |>
+  tab_header(
+    title = "Top 10 Team USA Olympic Performances",
+    subtitle = "Ranked by total medals won"
+  )
+```
+
+### Team USA Medal Trend Visualization
+
+```{r}
+#| label: usa-medal-trend
+#| fig-width: 10
+#| fig-height: 5
+
+ggplot(usa_medals, aes(x = year, y = total, color = season)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  scale_y_continuous(labels = comma) +
+  labs(
+    title = "Team USA Olympic Medal Performance Over Time",
+    subtitle = "Total medals won across modern Olympic Games",
+    x = "Olympic Year",
+    y = "Total Medals"
+  ) +
+  theme(
+    plot.title = element_text(face = "bold")
+  )
+```
+
+Team USA has consistently ranked among the most successful Olympic nations, particularly in the Summer Olympics. Medal totals generally increase during periods of strong athletic investment and large-scale Olympic participation.
+
+### Host Country Advantage
+
+A major part of the forecasting model is the possibility that Olympic host nations perform better when they compete at home. To explore this, I compare each host country’s medal count in the host year with its own medal count in the previous same-season Olympics.
+
+
+```{r}
+#| label: add-host-country-codes
+
+host_city_codes <- tribble(
+  ~city, ~host_iso3,
+  "Athina", "GRC",
+  "Paris", "FRA",
+  "St. Louis", "USA",
+  "London", "GBR",
+  "Stockholm", "SWE",
+  "Berlin", "DEU",
+  "Antwerpen", "BEL",
+  "Amsterdam", "NLD",
+  "Los Angeles", "USA",
+  "Helsinki", "FIN",
+  "Melbourne", "AUS",
+  "Roma", "ITA",
+  "Tokyo", "JPN",
+  "Ciudad de MÃ©xico", "MEX",
+  "MÃ¼nchen", "DEU",
+  "MontrÃ©al", "CAN",
+  "Moskva", "RUS",
+  "Seoul", "KOR",
+  "Barcelona", "ESP",
+  "Atlanta", "USA",
+  "Sydney", "AUS",
+  "Beijing", "CHN",
+  "Rio de Janeiro", "BRA",
+  "PyeongChang", "KOR",
+  "Sochi", "RUS",
+  "Vancouver", "CAN",
+  "Torino", "ITA",
+  "Salt Lake City", "USA",
+  "Nagano", "JPN",
+  "Lillehammer", "NOR",
+  "Albertville", "FRA",
+  "Calgary", "CAN",
+  "Sarajevo", "BIH",
+  "Lake Placid", "USA",
+  "Innsbruck", "AUT",
+  "Sapporo", "JPN",
+  "Grenoble", "FRA",
+  "Squaw Valley", "USA",
+  "Cortina d'Ampezzo", "ITA",
+  "Oslo", "NOR",
+  "St. Moritz", "CHE",
+  "Garmisch-Partenkirchen", "DEU",
+  "Chamonix", "FRA"
+)
+
+host_games <- games |>
+  left_join(host_city_codes, by = "city") |>
+  filter(!is.na(host_iso3)) |>
+  select(
+    season,
+    year,
+    city,
+    host_iso3
+  )
+
+host_games
+```
+
+```{r}
+#| label: host-country-effect-data
+
+host_games <- games |>
+  left_join(host_city_codes, by = "city") |>
+  filter(!is.na(host_iso3)) |>
+  select(season, year, city, host_iso3)
+
+country_game_medals <- medal_results_standardized |>
+  group_by(season, year, competitor_iso3) |>
+  summarise(
+    gold = sum(gold, na.rm = TRUE),
+    silver = sum(silver, na.rm = TRUE),
+    bronze = sum(bronze, na.rm = TRUE),
+    total = sum(total, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+host_country_medals <- host_games |>
+  left_join(
+    country_game_medals,
+    by = c(
+      "season",
+      "year",
+      "host_iso3" = "competitor_iso3"
+    )
+  ) |>
+  arrange(host_iso3, season, year) |>
+  group_by(host_iso3, season) |>
+  mutate(
+    prior_gold = lag(gold),
+    prior_total = lag(total),
+    gold_change = gold - prior_gold,
+    total_change = total - prior_total,
+    gold_pct_change = gold_change / prior_gold,
+    total_pct_change = total_change / prior_total
+  ) |>
+  ungroup() |>
+  filter(
+    !is.na(prior_total),
+    is.finite(total_pct_change)
+  )
+
+host_country_medals
+```
+
+
+```{r}
+#| label: host-country-inline-values
+
+avg_host_total_pct_change <- host_country_medals |>
+  summarise(
+    avg_change = mean(total_pct_change, na.rm = TRUE)
+  ) |>
+  pull(avg_change)
+
+avg_host_total_pct_change
+```
+
+On average, Olympic host countries increased their total medal count by `r percent(avg_host_total_pct_change, accuracy = 0.1)` compared with their previous same-season Olympic performance.
+
+```{r}
+#| label: host-country-effect-table
+
+host_country_medals |>
+  arrange(desc(total_pct_change)) |>
+  slice_head(n = 10) |>
+  mutate(
+    total_pct_change = percent(total_pct_change, accuracy = 0.1)
+  ) |>
+  select(
+    season,
+    year,
+    host_iso3,
+    total,
+    prior_total,
+    total_change,
+    total_pct_change
+  ) |>
+  gt() |>
+  tab_header(
+    title = "Largest Host Country Medal Improvements",
+    subtitle = "Compared with the host country's prior same-season Olympics"
+  ) |>
+  cols_label(
+    season = "Season",
+    year = "Year",
+    host_iso3 = "Host Country",
+    total = "Host-Year Medals",
+    prior_total = "Prior Medals",
+    total_change = "Medal Change",
+    total_pct_change = "Percent Change"
+  )
+```
+
+```{r}
+#| label: host-country-effect-plot
+#| fig-width: 10
+#| fig-height: 5
+
+host_country_medals |>
+  filter(year >= 1960) |>
+  ggplot(aes(x = year, y = total_pct_change, color = season)) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_point(size = 3, alpha = 0.8) +
+  geom_line(alpha = 0.5) +
+  scale_y_continuous(labels = percent) +
+  labs(
+    title = "Host Country Medal Change Over Time",
+    subtitle = "Percent change in total medals compared with prior same-season Olympics",
+    x = "Olympic Year",
+    y = "Percent Change in Total Medals",
+    color = "Season"
+  ) +
+  theme(
+    plot.title = element_text(face = "bold")
+  )
+```
+
+The host-country effect varies substantially across Olympic history. Some host nations experience major medal gains, while others show smaller improvements or even declines. This variation suggests that hosting alone does not guarantee a medal surge, but it can provide a meaningful advantage when combined with strong national investment and athlete depth.
+
+
+
+
+
+### New Sport Effect
+
+Olympic host countries can sometimes benefit from the introduction of new sports or disciplines, especially when those sports align with existing national strengths. To explore this effect, I examine how the number of Olympic disciplines changes over time and whether expanding Olympic programs are associated with higher medal totals.
+
+```{r}
+#| label: discipline-counts-by-year
+
+discipline_counts <- edition_sports |>
+  group_by(season, year) |>
+  summarise(
+    number_of_disciplines = n_distinct(discipline),
+    .groups = "drop"
+  )
+
+discipline_counts
+```
+
+```{r}
+#| label: discipline-inline-value
+
+avg_disciplines <- discipline_counts |>
+  summarise(
+    avg_disciplines = mean(number_of_disciplines, na.rm = TRUE)
+  ) |>
+  pull(avg_disciplines)
+
+avg_disciplines
+```
+
+On average, the Olympic Games included approximately `r round(avg_disciplines, 1)` disciplines per Olympic edition.
+
+### Olympic Discipline Expansion Table
+
+```{r}
+#| label: discipline-expansion-table
+
+discipline_counts |>
+  arrange(desc(number_of_disciplines)) |>
+  slice_head(n = 10) |>
+  gt() |>
+  tab_header(
+    title = "Olympic Editions with the Most Disciplines",
+    subtitle = "Ranked by number of Olympic disciplines"
+  ) |>
+  cols_label(
+    season = "Season",
+    year = "Year",
+    number_of_disciplines = "Number of Disciplines"
+  )
+```
+
+### Olympic Discipline Expansion Visualization
+
+```{r}
+#| label: discipline-expansion-plot
+#| fig-width: 10
+#| fig-height: 5
+
+ggplot(
+  discipline_counts,
+  aes(
+    x = year,
+    y = number_of_disciplines,
+    color = season
+  )
+) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  labs(
+    title = "Growth in Olympic Disciplines Over Time",
+    subtitle = "Number of Olympic disciplines by Olympic edition",
+    x = "Olympic Year",
+    y = "Number of Disciplines"
+  ) +
+  theme(
+    plot.title = element_text(face = "bold")
+  )
+```
+
+The number of Olympic disciplines has generally increased over time, particularly in the Summer Olympics. This expansion creates additional medal opportunities and may benefit countries with broad athletic depth, diversified training systems, and strong investment across many sports.
+
+
+
+### Additional EDA Finding 1: Medal Concentration by Country
+
+Olympic medals are not distributed evenly across countries. A relatively small number of nations account for a large share of total Olympic medals.
+
+```{r}
+#| label: top-medal-countries
+
+country_total_medals <- medal_results_standardized |>
+  group_by(competitor_iso3) |>
+  summarise(
+    total_medals = sum(total, na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  arrange(desc(total_medals))
+
+country_total_medals
+```
+
+```{r}
+#| label: top-medal-countries-table
+
+country_total_medals |>
+  slice_head(n = 10) |>
+  gt() |>
+  tab_header(
+    title = "Top Olympic Countries by Total Medals",
+    subtitle = "Combined medal totals across modern Olympic Games"
+  ) |>
+  cols_label(
+    competitor_iso3 = "Country",
+    total_medals = "Total Medals"
+  )
+```
+
+```{r}
+#| label: top-medal-countries-plot
+#| fig-width: 10
+#| fig-height: 5
+
+country_total_medals |>
+  slice_head(n = 10) |>
+  ggplot(
+    aes(
+      x = reorder(competitor_iso3, total_medals),
+      y = total_medals
+    )
+  ) +
+  geom_col() +
+  coord_flip() +
+  scale_y_continuous(labels = comma) +
+  labs(
+    title = "Top Olympic Countries by Total Medals",
+    subtitle = "Top 10 countries across modern Olympic history",
+    x = "Country",
+    y = "Total Medals"
+  ) +
+  theme(
+    plot.title = element_text(face = "bold")
+  )
+```
+
+A small group of countries dominates Olympic medal totals across modern Olympic history. These countries typically combine large populations, strong economies, deep athletic systems, and sustained Olympic investment.
+
+
+### Additional EDA Finding 2: Summer vs Winter Olympic Medal Distribution
+
+The Summer Olympics generally contain more disciplines and events than the Winter Olympics, leading to much larger overall medal totals.
+
+```{r}
+#| label: season-medal-comparison
+
+season_medals <- medal_results_standardized |>
+  group_by(season) |>
+  summarise(
+    total_medals = sum(total, na.rm = TRUE),
+    average_medals_per_games = mean(total, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+season_medals
+```
+
+```{r}
+#| label: season-medal-table
+
+season_medals |>
+  gt() |>
+  tab_header(
+    title = "Summer vs Winter Olympic Medal Distribution"
+  ) |>
+  cols_label(
+    season = "Season",
+    total_medals = "Total Medals",
+    average_medals_per_games = "Average Medals per Games"
+  )
+```
+
+```{r}
+#| label: season-medal-plot
+#| fig-width: 8
+#| fig-height: 5
+
+ggplot(
+  season_medals,
+  aes(x = season, y = total_medals, fill = season)
+) +
+  geom_col(width = 0.6) +
+  scale_y_continuous(labels = comma) +
+  labs(
+    title = "Total Olympic Medals by Olympic Season",
+    subtitle = "Comparison between Summer and Winter Olympics",
+    x = "Olympic Season",
+    y = "Total Medals"
+  ) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    legend.position = "none"
+  )
+```
+
+The Summer Olympics account for substantially more medals than the Winter Olympics because they include more participating countries, disciplines, and total events.
+
+
+### Additional EDA Finding 3: Long-Term Olympic Medal Growth
+
+Some countries have experienced substantial Olympic growth over time due to increased investment in sports infrastructure, athlete development, and international competition programs.
+
+```{r}
+#| label: country-medal-growth
+
+country_growth <- medal_results_standardized |>
+  group_by(year, competitor_iso3) |>
+  summarise(
+    total_medals = sum(total, na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  filter(year >= 1980) |>
+  group_by(competitor_iso3) |>
+  summarise(
+    first_medals = first(total_medals),
+    latest_medals = last(total_medals),
+    medal_growth = latest_medals - first_medals,
+    .groups = "drop"
+  ) |>
+  arrange(desc(medal_growth))
+
+country_growth
+```
+
+```{r}
+#| label: country-growth-table
+
+country_growth |>
+  slice_head(n = 10) |>
+  gt() |>
+  tab_header(
+    title = "Countries with the Largest Olympic Medal Growth",
+    subtitle = "Change in medal totals since 1980"
+  ) |>
+  cols_label(
+    competitor_iso3 = "Country",
+    first_medals = "Initial Medals",
+    latest_medals = "Recent Medals",
+    medal_growth = "Growth"
+  )
+```
+
+```{r}
+#| label: country-growth-plot
+#| fig-width: 10
+#| fig-height: 5
+
+country_growth |>
+  slice_head(n = 10) |>
+  ggplot(
+    aes(
+      x = reorder(competitor_iso3, medal_growth),
+      y = medal_growth
+    )
+  ) +
+  geom_col() +
+  coord_flip() +
+  labs(
+    title = "Largest Olympic Medal Growth Since 1980",
+    subtitle = "Top countries by increase in medal totals",
+    x = "Country",
+    y = "Medal Growth"
+  ) +
+  theme(
+    plot.title = element_text(face = "bold")
+  )
+```
+
+Several countries have dramatically improved their Olympic performance over time. This growth reflects broader trends in national investment, professional athlete development, and increased participation in international sports competition.
+
+## Statistical Inference
+### Task 4.1: Team USA Baseline Medal Confidence Intervals
+
+```{r}
+#| label: usa-baseline-confidence-intervals
+
+usa_summer_medals_recent <- medal_results_standardized |>
+  filter(
+    competitor_iso3 == "USA",
+    season == "Summer",
+    year >= 1960
+  ) |>
+  group_by(year) |>
+  summarise(
+    gold = sum(gold, na.rm = TRUE),
+    silver = sum(silver, na.rm = TRUE),
+    bronze = sum(bronze, na.rm = TRUE),
+    total = sum(total, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+usa_gold_ci <- usa_summer_medals_recent |>
+  t_test(gold ~ NULL)
+
+usa_silver_ci <- usa_summer_medals_recent |>
+  t_test(silver ~ NULL)
+
+usa_bronze_ci <- usa_summer_medals_recent |>
+  t_test(bronze ~ NULL)
+
+usa_total_ci <- usa_summer_medals_recent |>
+  t_test(total ~ NULL)
+
+usa_baseline_ci_table <- bind_rows(
+  usa_gold_ci |> mutate(medal_type = "Gold"),
+  usa_silver_ci |> mutate(medal_type = "Silver"),
+  usa_bronze_ci |> mutate(medal_type = "Bronze"),
+  usa_total_ci |> mutate(medal_type = "Total")
+) |>
+  select(
+    medal_type,
+    estimate,
+    lower_ci,
+    upper_ci,
+    p_value
+  )
+
+usa_baseline_ci_table
+```
+
+```{r}
+#| label: usa-baseline-ci-table
+
+usa_baseline_ci_table |>
+  mutate(
+    estimate = round(estimate, 1),
+    lower_ci = round(lower_ci, 1),
+    upper_ci = round(upper_ci, 1),
+    p_value = signif(p_value, 3)
+  ) |>
+  gt() |>
+  tab_header(
+    title = "Team USA Summer Olympic Medal Baseline",
+    subtitle = "Confidence intervals for average medal counts since 1960"
+  ) |>
+  cols_label(
+    medal_type = "Medal Type",
+    estimate = "Estimated Average",
+    lower_ci = "Lower 95% CI",
+    upper_ci = "Upper 95% CI",
+    p_value = "p-value"
+  )
+```
+
+This analysis estimates Team USA’s recent Summer Olympic baseline using Games from 1960 onward. These confidence intervals provide the baseline medal expectations used later in the 2028 forecast.
+
+
+### Task 4.2: Host Country Medal Increase Confidence Intervals
+
+```{r}
+#| label: host-country-confidence-intervals
+
+host_recent <- host_country_medals |>
+  filter(year >= 1960)
+
+host_gold_ci <- host_recent |>
+  drop_na(gold_pct_change) |>
+  t_test(gold_pct_change ~ NULL)
+
+host_total_ci <- host_recent |>
+  drop_na(total_pct_change) |>
+  t_test(total_pct_change ~ NULL)
+
+host_ci_table <- bind_rows(
+  host_gold_ci |> mutate(medal_type = "Gold"),
+  host_total_ci |> mutate(medal_type = "Total")
+) |>
+  select(
+    medal_type,
+    estimate,
+    lower_ci,
+    upper_ci,
+    p_value
+  )
+
+host_ci_table
+```
+
+```{r}
+#| label: host-country-ci-table
+
+host_ci_table |>
+  mutate(
+    estimate = percent(estimate, accuracy = 0.1),
+    lower_ci = percent(lower_ci, accuracy = 0.1),
+    upper_ci = percent(upper_ci, accuracy = 0.1),
+    p_value = signif(p_value, 3)
+  ) |>
+  gt() |>
+  tab_header(
+    title = "Host Country Olympic Medal Advantage",
+    subtitle = "Confidence intervals for medal percentage increases since 1960"
+  ) |>
+  cols_label(
+    medal_type = "Medal Type",
+    estimate = "Estimated Increase",
+    lower_ci = "Lower 95% CI",
+    upper_ci = "Upper 95% CI",
+    p_value = "p-value"
+  )
+```
+
+Host countries generally experience positive increases in medal performance relative to their prior Olympic appearance. The confidence intervals quantify the uncertainty around these estimated host-country effects.
+
+
+
+
+### Task 4.3: Host Country Success in New Sports
+
+To examine whether host countries benefit from newly introduced Olympic disciplines, I estimate the probability that the host country wins at least one gold medal in a newly introduced Olympic discipline.
+
+```{r}
+#| label: host-gold-new-sport-clean
+
+discipline_history <- edition_sports |>
+  arrange(season, year)
+
+new_disciplines <- discipline_history |>
+  group_by(season, discipline) |>
+  summarise(
+    first_year = min(year),
+    .groups = "drop"
+  )
+
+host_gold_new_sport <- medal_results_standardized |>
+  inner_join(
+    new_disciplines,
+    by = c("season", "discipline")
+  ) |>
+  filter(year == first_year) |>
+  left_join(
+    host_games |> distinct(season, year, host_iso3),
+    by = c("season", "year"),
+    relationship = "many-to-many"
+  ) |>
+  mutate(
+    host_won_gold = competitor_iso3 == host_iso3 & gold > 0
+  ) |>
+  group_by(season, year, discipline) |>
+  summarise(
+    host_won_gold = any(host_won_gold),
+    .groups = "drop"
+  )
+
+host_gold_new_sport
+```
+
+```{r}
+#| label: new-sport-prop-test
+
+new_sport_prop_test <- host_gold_new_sport |>
+  prop_test(host_won_gold ~ NULL)
+
+new_sport_prop_test
+```
+
+```{r}
+#| label: new-sport-probability-inline
+
+new_sport_lower <- new_sport_prop_test |>
+  pull(lower_ci)
+
+new_sport_upper <- new_sport_prop_test |>
+  pull(upper_ci)
+
+new_sport_pvalue <- new_sport_prop_test |>
+  pull(p_value)
+
+new_sport_probability <- mean(
+  host_gold_new_sport$host_won_gold,
+  na.rm = TRUE
+)
+
+new_sport_probability
+```
+
+The estimated probability that a host country wins at least one gold medal in a newly introduced Olympic discipline is approximately `r percent(new_sport_probability, accuracy = 0.36)`, with a 95% confidence interval ranging from `r percent(new_sport_lower, accuracy = 0.1)` to `r percent(new_sport_upper, accuracy = 0.1)`.
+
+## Monte Carlo Forecasting for LA 2028
+To combine the uncertainty from multiple Olympic performance effects, I use a Monte Carlo simulation approach. This method repeatedly samples from the estimated confidence intervals developed earlier in the analysis to generate a range of possible Team USA medal outcomes for the 2028 Los Angeles Olympics.
+
+```{r}
+#| label: monte-carlo-forecast
+#| message: false
+#| warning: false
+
+set.seed(2028)
+
+# USA baseline estimates
+usa_total_mean <- usa_total_ci |> pull(estimate)
+usa_total_lower <- usa_total_ci |> pull(lower_ci)
+usa_total_upper <- usa_total_ci |> pull(upper_ci)
+
+# Host-country effect estimates
+host_total_mean <- host_total_ci |> pull(estimate)
+host_total_lower <- host_total_ci |> pull(lower_ci)
+host_total_upper <- host_total_ci |> pull(upper_ci)
+
+# New-sport probability estimates
+new_sport_mean <- new_sport_probability
+new_sport_lower <- new_sport_lower
+new_sport_upper <- new_sport_upper
+
+# Convert confidence intervals into approximate standard deviations
+usa_total_sd <- (usa_total_upper - usa_total_mean) /
+  qnorm(1 - 0.05 / 2)
+
+host_total_sd <- (host_total_upper - host_total_mean) /
+  qnorm(1 - 0.05 / 2)
+
+new_sport_sd <- (new_sport_upper - new_sport_mean) /
+  qnorm(1 - 0.05 / 2)
+
+# Monte Carlo simulation
+n_simulations <- 100000
+
+usa_baseline_samples <- rnorm(
+  n_simulations,
+  mean = usa_total_mean,
+  sd = usa_total_sd
+)
+
+host_effect_samples <- rnorm(
+  n_simulations,
+  mean = host_total_mean,
+  sd = host_total_sd
+)
+
+new_sport_samples <- rnorm(
+  n_simulations,
+  mean = new_sport_mean,
+  sd = new_sport_sd
+)
+
+# Approximate effect of 22 additional medal events
+additional_medal_events <- 22
+
+forecast_total_medals <- usa_baseline_samples *
+  (1 + host_effect_samples) +
+  (new_sport_samples * additional_medal_events)
+
+forecast_total_medals <- pmax(
+  forecast_total_medals,
+  0
+)
+
+forecast_interval <- quantile(
+  forecast_total_medals,
+  probs = c(0.025, 0.50, 0.975)
+)
+
+forecast_interval
+```
+The Monte Carlo simulation estimates that Team USA could win approximately `r round(forecast_interval[[2]], 0)` total medals at the 2028 Los Angeles Olympics, with a 95% forecast interval ranging from approximately `r round(forecast_interval[[1]], 0)` to `r round(forecast_interval[[3]], 0)` medals.
+
+This forecast combines uncertainty from Team USA’s historical Olympic baseline, the host-country advantage effect, and the potential impact of newly introduced Olympic disciplines. While the interval remains wide due to the uncertainty inherent in Olympic forecasting, the simulation suggests that Team USA is positioned to remain one of the strongest Olympic nations entering the 2028 Games.
+
+
+
+## Team USA Fundraising Fact Sheet for LA 2028
+### Forecasting Team USA Success at the 2028 Los Angeles Olympics
+
+The 2028 Los Angeles Olympics present a major opportunity for Team USA to continue its historical Olympic dominance while generating global attention for corporate sponsors and strategic partners. Based on historical Olympic performance, statistical inference, and Monte Carlo forecasting methods, the outlook for Team USA entering LA 2028 remains extremely strong.
+
+This analysis used a three-factor forecasting model to estimate Team USA’s expected medal performance:
+
+1. Team USA’s historical Olympic medal baseline
+2. The Olympic host-country advantage effect
+3. The impact of newly introduced Olympic disciplines and medal events
+
+### Factor 1: Team USA Historical Performance
+
+The United States has consistently ranked among the world’s strongest Olympic nations, particularly in the Summer Olympics. Historical medal trends since 1960 show that Team USA maintains one of the highest sustained medal totals across all participating countries. This strong baseline reflects long-term investment in athlete development, sports infrastructure, collegiate athletics, and international competition programs.
+
+### Factor 2: Host-Country Advantage
+
+Historical Olympic data suggests that host countries often experience measurable increases in medal performance relative to prior Olympic Games. Hosting the Olympics can create advantages through larger athlete delegations, familiar competition environments, increased public investment, and strong home-country support. Since Los Angeles will host the 2028 Games, Team USA is expected to benefit from these host-country effects.
+
+### Factor 3: Expansion of Olympic Disciplines
+
+The Olympic Games continue to evolve through the addition of new disciplines and medal opportunities. Countries with broad athletic depth and diversified sports investment are better positioned to capitalize on these expansions. Team USA’s extensive athletic infrastructure provides strong opportunities to compete successfully across both traditional and newly introduced events.
+
+### Final Forecast for LA 2028
+
+Using Monte Carlo simulation techniques to combine uncertainty across all three forecasting factors, the projected Team USA performance for the 2028 Los Angeles Olympics is:
+
+- Median forecast: approximately `r round(forecast_interval[[2]], 0)` total medals
+- 95% forecast interval: approximately `r round(forecast_interval[[1]], 0)` to `r round(forecast_interval[[3]], 0)` total medals
+
+These results suggest that Team USA is strongly positioned to remain one of the leading Olympic delegations in the world during the 2028 Games.
+
+### Why This Matters for Sponsors
+
+The Los Angeles Olympics are expected to attract massive global audiences, extensive media coverage, and significant corporate engagement opportunities. Strong projected Team USA performance increases the visibility and marketing value associated with Olympic sponsorship partnerships. Sponsors aligned with Team USA may benefit from enhanced brand exposure, national visibility, and association with one of the world’s most successful Olympic programs.
+
+Overall, the combination of historical dominance, home-country advantage, and expanding Olympic opportunities positions Team USA for another highly competitive Olympic performance in Los Angeles.
+
+##  Model Improvement
+### Adding a Recent Performance Trend Factor
+
+One limitation of the original forecasting model is that it treats Team USA’s long-term Olympic baseline as relatively stable across all decades. However, Olympic performance can evolve over time due to changes in athlete development systems, funding, population dynamics, and international competition. To improve the model, I introduce an additional factor measuring Team USA’s recent Olympic medal trend.
+
+```{r}
+#| label: recent-usa-trend
+
+usa_recent_trend <- medal_results_standardized |>
+  filter(
+    competitor_iso3 == "USA",
+    season == "Summer",
+    year >= 1960
+  ) |>
+  group_by(year) |>
+  summarise(
+    total = sum(total, na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  mutate(
+    period = if_else(year >= 2000,
+                     "Recent Era",
+                     "Historical Era")
+  )
+
+usa_recent_trend
+```
+```{r}
+#| label: recent-trend-t-test
+
+recent_trend_test <- usa_recent_trend |>
+  t_test(
+    total ~ period,
+    order = c("Historical Era", "Recent Era")
+  )
+
+recent_trend_test
+```
+
+```{r}
+#| label: recent-trend-inline-values
+
+recent_trend_estimate <- recent_trend_test |>
+  pull(estimate)
+
+recent_trend_lower <- recent_trend_test |>
+  pull(lower_ci)
+
+recent_trend_upper <- recent_trend_test |>
+  pull(upper_ci)
+
+recent_trend_estimate
+```
+
+The estimated difference between Team USA’s recent Olympic medal performance and earlier Olympic eras is approximately 52.9. medals `r round(recent_trend_estimate, 1)` medals, with a 95% confidence interval ranging from `r round(recent_trend_lower, 1)` to `r round(recent_trend_upper, 1)` medals.
+
+```{r}
+#| label: recent-trend-plot
+#| fig-width: 9
+#| fig-height: 5
+
+ggplot(
+  usa_recent_trend,
+  aes(
+    x = year,
+    y = total,
+    color = period
+  )
+) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  labs(
+    title = "Team USA Recent Olympic Medal Trends",
+    subtitle = "Comparison between historical and recent Olympic eras",
+    x = "Olympic Year",
+    y = "Total Medals"
+  ) +
+  theme(
+    plot.title = element_text(face = "bold")
+  )
+```
+
+This additional trend factor suggests that Team USA’s more recent Olympic performances differ from earlier Olympic eras. Incorporating recent performance trends may improve the forecasting model by placing greater emphasis on modern Olympic conditions and current athletic systems.
+
+
+### Improved Forecast Including Recent Trend
+
+```{r}
+#| label: improved-monte-carlo-forecast
+
+recent_trend_sd <- (recent_trend_upper - recent_trend_estimate) /
+  qnorm(1 - 0.05 / 2)
+
+recent_trend_samples <- rnorm(
+  n_simulations,
+  mean = recent_trend_estimate,
+  sd = recent_trend_sd
+)
+
+improved_forecast_total_medals <- forecast_total_medals +
+  recent_trend_samples
+
+improved_forecast_interval <- quantile(
+  improved_forecast_total_medals,
+  probs = c(0.025, 0.50, 0.975)
+)
+
+forecast_comparison <- tibble(
+  model = c("Original Three-Factor Model", "Improved Model with Recent Trend"),
+  lower_95 = c(forecast_interval[[1]], improved_forecast_interval[[1]]),
+  median = c(forecast_interval[[2]], improved_forecast_interval[[2]]),
+  upper_95 = c(forecast_interval[[3]], improved_forecast_interval[[3]])
+)
+
+forecast_comparison
+```
+
+```{r}
+#| label: forecast-comparison-table
+
+forecast_comparison |>
+  mutate(
+    across(
+      c(lower_95, median, upper_95),
+      ~ round(.x, 0)
+    )
+  ) |>
+  gt() |>
+  tab_header(
+    title = "Forecast Comparison",
+    subtitle = "Original model vs. improved model with recent Team USA trend"
+  ) |>
+  cols_label(
+    model = "Forecast Model",
+    lower_95 = "Lower 95%",
+    median = "Median",
+    upper_95 = "Upper 95%"
+  )
+```
+
+The improved model adds a recent-performance trend factor to the original three-factor forecast. Comparing both models shows how sensitive the 2028 prediction is to assumptions about whether Team USA’s more recent Olympic performance should receive additional weight.
+
+
+## AI Usage Statement
+
+::: {.callout-note title="AI Usage Statement" collapse="true"}
+No Generative AI tools were used to complete this mini-project.
+:::
+
+
+
